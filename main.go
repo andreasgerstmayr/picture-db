@@ -20,19 +20,19 @@ import (
 )
 
 type Picture struct {
-	Path      string `gorm:"primaryKey"`
-	Dir       string
-	Dir1      string
-	Dir2      string
-	Dir3      string
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	Path      string    `gorm:"primaryKey;not null"`
+	Dir       string    `gorm:"not null"`
+	Dir1      string    `gorm:"not null"`
+	Dir2      string    `gorm:"not null"`
+	Dir3      string    `gorm:"not null"`
+	CreatedAt time.Time `gorm:"not null"`
+	UpdatedAt time.Time `gorm:"not null"`
 
-	Make             string
-	Model            string
-	DateTimeOriginal time.Time
-	Rating           int64
-	Tags             string
+	Make             *string
+	Model            *string
+	DateTimeOriginal *time.Time
+	Rating           *int64
+	Tags             string `gorm:"not null"`
 }
 
 func openDatabase(dbPath string) (*gorm.DB, error) {
@@ -73,16 +73,17 @@ func index(exifTool *exiftool.Exiftool, path string, picture *Picture) error {
 	}
 
 	if dateTimeOriginal, err := fileInfo.GetInt("DateTimeOriginal"); err == nil {
-		picture.DateTimeOriginal = time.Unix(dateTimeOriginal, 0)
+		dt := time.Unix(dateTimeOriginal, 0)
+		picture.DateTimeOriginal = &dt
 	}
 	if make, err := fileInfo.GetString("Make"); err == nil {
-		picture.Make = make
+		picture.Make = &make
 	}
 	if model, err := fileInfo.GetString("Model"); err == nil {
-		picture.Model = model
+		picture.Model = &model
 	}
 	if rating, err := fileInfo.GetInt("Rating"); err == nil {
-		picture.Rating = rating
+		picture.Rating = &rating
 	}
 	if tags, err := fileInfo.GetStrings("Keywords"); err == nil {
 		picture.Tags = ";" + strings.Join(tags, ";") + ";"

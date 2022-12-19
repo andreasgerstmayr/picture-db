@@ -26,18 +26,18 @@ picture-db photoprism \
 ## Table Schema
 ```
 CREATE TABLE `pictures` (
-    `path` text,
-    `dir` text,
-    `dir1` text,
-    `dir2` text,
-    `dir3` text,
-    `created_at` datetime,
-    `updated_at` datetime,
+    `path` text NOT NULL,
+    `dir` text NOT NULL,
+    `dir1` text NOT NULL,
+    `dir2` text NOT NULL,
+    `dir3` text NOT NULL,
+    `created_at` datetime NOT NULL,
+    `updated_at` datetime NOT NULL,
     `make` text,
     `model` text,
     `date_time_original` datetime,
     `rating` integer,
-    `tags` text,
+    `tags` text NOT NULL,
     PRIMARY KEY (`path`)
 );
 ```
