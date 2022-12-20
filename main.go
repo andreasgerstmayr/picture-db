@@ -192,7 +192,7 @@ type PhotoprismPicture struct {
 }
 
 func syncPhotoprismAlbum(config *Config, client *photoprism.Client, photoprismAlbums []api.Album, albumTitle string, pictures []*PhotoprismPicture) error {
-	photoprismAlbumPictures := map[string]bool{}
+	photoprismAlbumPictures := map[string]*api.Photo{}
 
 	// find album in existing photoprism albums
 	var photoprismAlbum api.Album
@@ -227,7 +227,8 @@ func syncPhotoprismAlbum(config *Config, client *photoprism.Client, photoprismAl
 		}
 
 		for _, photo := range photos {
-			photoprismAlbumPictures[photo.PhotoUID] = true
+			photo := photo
+			photoprismAlbumPictures[photo.PhotoUID] = &photo
 		}
 	}
 
@@ -271,9 +272,23 @@ func syncPhotoprismAlbum(config *Config, client *photoprism.Client, photoprismAl
 		}
 	}
 
-	// show extra pictures of album
-	for picture := range photoprismAlbumPictures {
-		fmt.Printf("WARNING: %s is in PhotoPrism album %s but should not be there\n", picture, albumTitle)
+	// compile list of extra pictures of album to be deleted
+	deletePictures := []string{}
+	for _, picture := range photoprismAlbumPictures {
+		if config.PhotoPrism.DeleteFromAlbum {
+			fmt.Printf("deleting %s from %s\n", picture.PhotoName, albumTitle)
+			deletePictures = append(deletePictures, picture.PhotoUID)
+		} else {
+			fmt.Printf("WARNING: %s is in PhotoPrism album %s but should not be there (use --delete to delete extra pictures)\n", picture.PhotoName, albumTitle)
+		}
+	}
+
+	// delete extra pictures of album
+	if len(deletePictures) > 0 {
+		err := client.V1().DeletePhotosFromAlbum(photoprismAlbum.AlbumUID, deletePictures)
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -329,9 +344,10 @@ func syncPhotoprismAlbums(config *Config, sql string) error {
 }
 
 type PhotoPrismConfig struct {
-	URL  string `json:"url"`
-	User string `json:"user"`
-	Pass string `json:"pass"`
+	URL             string `json:"url"`
+	User            string `json:"user"`
+	Pass            string `json:"pass"`
+	DeleteFromAlbum bool
 }
 
 type Config struct {
@@ -400,6 +416,7 @@ func main() {
 	photoprismCmd.Flags().StringVar(&config.PhotoPrism.URL, "url", "", "PhotoPrism URL")
 	photoprismCmd.Flags().StringVar(&config.PhotoPrism.User, "user", "", "username")
 	photoprismCmd.Flags().StringVar(&config.PhotoPrism.Pass, "pass", "", "password")
+	photoprismCmd.Flags().BoolVar(&config.PhotoPrism.DeleteFromAlbum, "delete", false, "delete extra pictures from album")
 	rootCmd.AddCommand(photoprismCmd)
 
 	sqlCmd := &cobra.Command{
