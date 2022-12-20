@@ -23,6 +23,11 @@ picture-db photoprism \
   'SELECT dir2 AS album, path FROM pictures WHERE rating >= 4'
 ```
 
+### Using a configuration file
+```
+picture-db --config picturedb.json ...
+```
+
 ## Table Schema
 ```
 CREATE TABLE `pictures` (

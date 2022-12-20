@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"log"
@@ -96,8 +97,8 @@ func index(exifTool *exiftool.Exiftool, path string, picture *Picture) error {
 	return nil
 }
 
-func scan(dbPath string, searchPath string, forceReindex bool, verbose bool) error {
-	db, err := openDatabase(dbPath)
+func scan(config *Config, searchPath string, forceReindex bool) error {
+	db, err := openDatabase(config.DBPath)
 	if err != nil {
 		return err
 	}
@@ -145,7 +146,7 @@ func scan(dbPath string, searchPath string, forceReindex bool, verbose bool) err
 			result := db.Limit(1).Find(&picture, "path = ?", path)
 			if result.RowsAffected == 1 {
 				if stat.ModTime().Before(picture.UpdatedAt) {
-					if verbose {
+					if config.Verbose {
 						fmt.Printf("skipping %s [%.0f%%]\n", path, float64(i+1)/float64(len(paths))*100)
 					}
 					continue
@@ -172,7 +173,7 @@ func scan(dbPath string, searchPath string, forceReindex bool, verbose bool) err
 	for _, picture := range pictures {
 		_, ok := paths[picture.Path]
 		if !ok {
-			if verbose {
+			if config.Verbose {
 				fmt.Printf("deleting %s from db (picture got deleted on disk)\n", picture.Path)
 			}
 			result := db.Delete(picture)
@@ -185,18 +186,12 @@ func scan(dbPath string, searchPath string, forceReindex bool, verbose bool) err
 	return nil
 }
 
-type PhotoprismAccess struct {
-	URL  string
-	User string
-	Pass string
-}
-
 type PhotoprismPicture struct {
 	Album string
 	Path  string
 }
 
-func syncPhotoprismAlbum(client *photoprism.Client, photoprismAlbums []api.Album, albumTitle string, pictures []*PhotoprismPicture, verbose bool) error {
+func syncPhotoprismAlbum(config *Config, client *photoprism.Client, photoprismAlbums []api.Album, albumTitle string, pictures []*PhotoprismPicture) error {
 	photoprismAlbumPictures := map[string]bool{}
 
 	// find album in existing photoprism albums
@@ -218,7 +213,7 @@ func syncPhotoprismAlbum(client *photoprism.Client, photoprismAlbums []api.Album
 
 		photoprismAlbum = newAlbum
 	} else {
-		if verbose {
+		if config.Verbose {
 			fmt.Printf("album %s exists already\n", albumTitle)
 		}
 
@@ -239,7 +234,7 @@ func syncPhotoprismAlbum(client *photoprism.Client, photoprismAlbums []api.Album
 	// compile list of new picture UIDs for this album
 	newPictures := []string{}
 	for i, picture := range pictures {
-		if verbose {
+		if config.Verbose {
 			fmt.Printf("searching file %s in PhotoPrism [%.0f%%]\n", picture.Path, float64(i+1)/float64(len(pictures))*100)
 		}
 		photos, err := client.V1().GetPhotos(&api.PhotoOptions{
@@ -258,7 +253,7 @@ func syncPhotoprismAlbum(client *photoprism.Client, photoprismAlbums []api.Album
 
 		_, ok := photoprismAlbumPictures[photoUID]
 		if ok {
-			if verbose {
+			if config.Verbose {
 				fmt.Printf("skipping %s (already contained in %s)\n", picture.Path, albumTitle)
 			}
 			delete(photoprismAlbumPictures, photoUID)
@@ -284,9 +279,9 @@ func syncPhotoprismAlbum(client *photoprism.Client, photoprismAlbums []api.Album
 	return nil
 }
 
-func syncPhotoprismAlbums(dbPath string, photoprismAccess PhotoprismAccess, sql string, verbose bool) error {
+func syncPhotoprismAlbums(config *Config, sql string) error {
 	// open database
-	db, err := openDatabase(dbPath)
+	db, err := openDatabase(config.DBPath)
 	if err != nil {
 		return err
 	}
@@ -299,8 +294,8 @@ func syncPhotoprismAlbums(dbPath string, photoprismAccess PhotoprismAccess, sql 
 	}
 
 	// create photoprism session
-	client := photoprism.New(photoprismAccess.URL)
-	err = client.Auth(photoprism.NewClientAuthLogin(photoprismAccess.User, photoprismAccess.Pass))
+	client := photoprism.New(config.PhotoPrism.URL)
+	err = client.Auth(photoprism.NewClientAuthLogin(config.PhotoPrism.User, config.PhotoPrism.Pass))
 	if err != nil {
 		return err
 	}
@@ -324,7 +319,7 @@ func syncPhotoprismAlbums(dbPath string, photoprismAccess PhotoprismAccess, sql 
 
 	// sync albums
 	for album, pictures := range picturesByAlbum {
-		err = syncPhotoprismAlbum(client, photoprismAlbums, album, pictures, verbose)
+		err = syncPhotoprismAlbum(config, client, photoprismAlbums, album, pictures)
 		if err != nil {
 			return err
 		}
@@ -333,15 +328,28 @@ func syncPhotoprismAlbums(dbPath string, photoprismAccess PhotoprismAccess, sql 
 	return nil
 }
 
+type PhotoPrismConfig struct {
+	URL  string `json:"url"`
+	User string `json:"user"`
+	Pass string `json:"pass"`
+}
+
+type Config struct {
+	Verbose    bool             `json:"verbose"`
+	DBPath     string           `json:"dbPath"`
+	PhotoPrism PhotoPrismConfig `json:"photoprism"`
+}
+
 func main() {
-	var verbose bool
-	var dbPath string
+	var configFile string
+	var config Config
 
 	rootCmd := &cobra.Command{
-		Use: "mkpicturesymlinks",
+		Use: "picture-db",
 	}
-	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "verbose output")
-	rootCmd.PersistentFlags().StringVar(&dbPath, "dbPath", "db.sqlite", "sqlite3 database")
+	rootCmd.PersistentFlags().StringVar(&configFile, "config", "", "config file")
+	rootCmd.PersistentFlags().BoolVarP(&config.Verbose, "verbose", "v", false, "verbose output")
+	rootCmd.PersistentFlags().StringVar(&config.DBPath, "dbPath", "db.sqlite", "sqlite3 database")
 
 	var forceReindex bool
 	indexCmd := &cobra.Command{
@@ -353,7 +361,7 @@ func main() {
 			}
 
 			for _, arg := range args {
-				err := scan(dbPath, arg, forceReindex, verbose)
+				err := scan(&config, arg, forceReindex)
 				if err != nil {
 					log.Fatal(err)
 					return
@@ -364,25 +372,34 @@ func main() {
 	indexCmd.Flags().BoolVarP(&forceReindex, "reindex", "r", false, "force reindex")
 	rootCmd.AddCommand(indexCmd)
 
-	var photoprismAccess PhotoprismAccess
 	photoprismCmd := &cobra.Command{
 		Use:   "photoprism sql",
 		Short: "create photoprism albums per the sql command",
 		Args:  cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
-			err := syncPhotoprismAlbums(dbPath, photoprismAccess, args[0], verbose)
+			if config.PhotoPrism.URL == "" {
+				log.Fatal("missing PhotoPrism URL")
+				return
+			}
+			if config.PhotoPrism.User == "" {
+				log.Fatal("missing PhotoPrism username")
+				return
+			}
+			if config.PhotoPrism.Pass == "" {
+				log.Fatal("missing PhotoPrism password")
+				return
+			}
+
+			err := syncPhotoprismAlbums(&config, args[0])
 			if err != nil {
 				log.Fatal(err)
 				return
 			}
 		},
 	}
-	photoprismCmd.Flags().StringVar(&photoprismAccess.URL, "url", "", "PhotoPrism URL")
-	photoprismCmd.Flags().StringVar(&photoprismAccess.User, "user", "", "username")
-	photoprismCmd.Flags().StringVar(&photoprismAccess.Pass, "pass", "", "password")
-	photoprismCmd.MarkFlagRequired("url")
-	photoprismCmd.MarkFlagRequired("user")
-	photoprismCmd.MarkFlagRequired("pass")
+	photoprismCmd.Flags().StringVar(&config.PhotoPrism.URL, "url", "", "PhotoPrism URL")
+	photoprismCmd.Flags().StringVar(&config.PhotoPrism.User, "user", "", "username")
+	photoprismCmd.Flags().StringVar(&config.PhotoPrism.Pass, "pass", "", "password")
 	rootCmd.AddCommand(photoprismCmd)
 
 	sqlCmd := &cobra.Command{
@@ -390,7 +407,7 @@ func main() {
 		Short: "run SQL commands in the picture database",
 		Args:  cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
-			sqliteCmd := exec.Command("sqlite3", "-header", "-column", dbPath, args[0])
+			sqliteCmd := exec.Command("sqlite3", "-header", "-column", config.DBPath, args[0])
 			sqliteCmd.Stdout = os.Stdout
 			sqliteCmd.Stderr = os.Stderr
 
@@ -402,6 +419,21 @@ func main() {
 		},
 	}
 	rootCmd.AddCommand(sqlCmd)
+
+	rootCmd.ParseFlags(os.Args[1:])
+	if configFile != "" {
+		buff, err := os.ReadFile(configFile)
+		if err != nil {
+			log.Fatalf("failed to read configFile %s: %s", configFile, err)
+			return
+		}
+
+		err = json.Unmarshal(buff, &config)
+		if err != nil {
+			log.Fatalf("failed to parse configFile %s: %s", configFile, err)
+			return
+		}
+	}
 
 	if err := rootCmd.Execute(); err != nil {
 		log.Fatal(err)
