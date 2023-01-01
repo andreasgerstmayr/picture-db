@@ -17,7 +17,12 @@ type Picture struct {
 	Model            *string
 	DateTimeOriginal *time.Time
 	Rating           *int64
-	Tags             string `gorm:"not null"`
+	Tags             []PictureTag `gorm:"foreignKey:Path;constraint:OnDelete:CASCADE"`
+}
+
+type PictureTag struct {
+	Path string `gorm:"primaryKey;not null"`
+	Tag  string `gorm:"primaryKey;not null"`
 }
 
 type PhotoPrismConfig struct {

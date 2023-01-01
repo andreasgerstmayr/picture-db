@@ -10,9 +10,10 @@ import (
 	"time"
 
 	"github.com/barasher/go-exiftool"
+	"gorm.io/gorm"
 )
 
-func index(exifTool *exiftool.Exiftool, path string, picture *Picture) error {
+func index(exifTool *exiftool.Exiftool, db *gorm.DB, path string, picture *Picture) error {
 	dir := filepath.Dir(path)
 	picture.Dir = dir
 
@@ -21,11 +22,17 @@ func index(exifTool *exiftool.Exiftool, path string, picture *Picture) error {
 	}
 	dirSplit := strings.Split(dir, string(filepath.Separator))
 	picture.Dir1 = dirSplit[0]
+
 	if len(dirSplit) > 1 {
 		picture.Dir2 = dirSplit[1]
+	} else {
+		picture.Dir2 = ""
 	}
+
 	if len(dirSplit) > 2 {
 		picture.Dir3 = dirSplit[2]
+	} else {
+		picture.Dir3 = ""
 	}
 
 	// extract EXIF metadata
@@ -39,6 +46,7 @@ func index(exifTool *exiftool.Exiftool, path string, picture *Picture) error {
 		return fileInfo.Err
 	}
 
+	// extract exif infos
 	if dateTimeOriginal, err := fileInfo.GetInt("DateTimeOriginal"); err == nil {
 		dt := time.Unix(dateTimeOriginal, 0)
 		picture.DateTimeOriginal = &dt
@@ -52,13 +60,51 @@ func index(exifTool *exiftool.Exiftool, path string, picture *Picture) error {
 	if rating, err := fileInfo.GetInt("Rating"); err == nil {
 		picture.Rating = &rating
 	}
-	if tags, err := fileInfo.GetStrings("Keywords"); err == nil {
-		picture.Tags = ";" + strings.Join(tags, ";") + ";"
-	}
 
 	/*for k, v := range fileInfo.Fields {
 		fmt.Printf("%v = %v\n", k, v)
 	}*/
+
+	// create or update picture before adding tags due to FK constraints
+	if picture.CreatedAt.IsZero() {
+		result := db.Create(&picture)
+		if result.Error != nil {
+			return result.Error
+		}
+	} else {
+		result := db.Save(&picture)
+		if result.Error != nil {
+			return result.Error
+		}
+	}
+
+	// extract tags
+	tags, err := fileInfo.GetStrings("Keywords")
+	pictureTags := []PictureTag{}
+	if err == nil {
+		for _, tag := range tags {
+			pictureTags = append(pictureTags, PictureTag{Tag: tag})
+		}
+	}
+
+	// add or delete tags
+	// workaround for https://github.com/go-gorm/gorm/issues/5899
+	if len(tags) > 0 {
+		err = db.Model(&picture).Association("Tags").Append(pictureTags)
+		if err != nil {
+			return err
+		}
+
+		err = db.Delete(&PictureTag{}, "path = ? AND tag NOT IN ?", picture.Path, tags).Error
+		if err != nil {
+			return err
+		}
+	} else {
+		err = db.Delete(&PictureTag{}, "path = ?", picture.Path).Error
+		if err != nil {
+			return err
+		}
+	}
 
 	return nil
 }
@@ -108,24 +154,21 @@ func scan(config *Config, searchPath string, forceReindex bool) error {
 			Path: path,
 		}
 
-		if !forceReindex {
-			result := db.Limit(1).Find(&picture, "path = ?", path)
-			if result.RowsAffected == 1 {
-				if stat.ModTime().Before(picture.UpdatedAt) {
-					if config.Verbose {
-						fmt.Printf("skipping %s [%.0f%%]\n", path, float64(i+1)/float64(len(paths))*100)
-					}
-					continue
+		result := db.Limit(1).Find(&picture)
+		if result.RowsAffected == 1 {
+			if !forceReindex && stat.ModTime().Before(picture.UpdatedAt) {
+				if config.Verbose {
+					fmt.Printf("skipping %s [%.0f%%]\n", path, float64(i)/float64(len(paths))*100)
 				}
+				continue
 			}
 		}
 
-		fmt.Printf("indexing %s [%.0f%%]\n", path, float64(i+1)/float64(len(paths))*100)
-		index(exifTool, path, &picture)
-
-		result := db.Save(&picture)
-		if result.Error != nil {
-			return result.Error
+		fmt.Printf("indexing %s [%.0f%%]\n", path, float64(i)/float64(len(paths))*100)
+		err = index(exifTool, db, path, &picture)
+		if err != nil {
+			log.Printf("error indexing %s: %v", path, err)
+			continue
 		}
 	}
 
@@ -139,9 +182,7 @@ func scan(config *Config, searchPath string, forceReindex bool) error {
 	for _, picture := range pictures {
 		_, ok := paths[picture.Path]
 		if !ok {
-			if config.Verbose {
-				fmt.Printf("deleting %s from db (picture got deleted on disk)\n", picture.Path)
-			}
+			fmt.Printf("removing %s from index (file got moved or deleted on disk)\n", picture.Path)
 			result := db.Delete(picture)
 			if result.Error != nil {
 				return result.Error

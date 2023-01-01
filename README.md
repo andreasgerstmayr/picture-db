@@ -12,6 +12,8 @@ picture-db index
 ```
 picture-db sql 'SELECT * FROM pictures'
 picture-db sql 'SELECT path FROM pictures WHERE rating >= 4'
+picture-db sql 'SELECT path FROM pictures NATURAL JOIN picture_tags WHERE tag = "food"'
+picture-db sql 'SELECT tag, COUNT(*) FROM picture_tags GROUP BY tag ORDER BY COUNT(*) DESC'
 ```
 
 Note: This requires the `sqlite3` binary in your `$PATH`.
@@ -42,7 +44,13 @@ CREATE TABLE `pictures` (
     `model` text,
     `date_time_original` datetime,
     `rating` integer,
-    `tags` text NOT NULL,
     PRIMARY KEY (`path`)
+);
+
+CREATE TABLE `picture_tags` (
+    `path` text NOT NULL,
+    `tag` text NOT NULL,
+    PRIMARY KEY (`path`,`tag`),
+    CONSTRAINT `fk_pictures_tags` FOREIGN KEY (`path`) REFERENCES `pictures`(`path`) ON DELETE CASCADE
 );
 ```
