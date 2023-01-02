@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"log"
@@ -14,26 +15,18 @@ import (
 )
 
 func index(exifTool *exiftool.Exiftool, db *gorm.DB, path string, picture *Picture) error {
-	dir := filepath.Dir(path)
-	picture.Dir = dir
-
-	if dir[0] == filepath.Separator {
-		dir = dir[1:]
+	// extract path information
+	jsonPath := strings.Split(path, string(filepath.Separator))
+	if jsonPath[0] == "" {
+		// skip first empty element in case of an absolute path
+		jsonPath = jsonPath[1:]
 	}
-	dirSplit := strings.Split(dir, string(filepath.Separator))
-	picture.Dir1 = dirSplit[0]
-
-	if len(dirSplit) > 1 {
-		picture.Dir2 = dirSplit[1]
-	} else {
-		picture.Dir2 = ""
+	jsonPathBytes, err := json.Marshal(jsonPath)
+	if err != nil {
+		return err
 	}
-
-	if len(dirSplit) > 2 {
-		picture.Dir3 = dirSplit[2]
-	} else {
-		picture.Dir3 = ""
-	}
+	picture.JsonPath = string(jsonPathBytes)
+	picture.Dir = filepath.Dir(path)
 
 	// extract EXIF metadata
 	fileInfos := exifTool.ExtractMetadata(path)

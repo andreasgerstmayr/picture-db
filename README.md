@@ -6,6 +6,7 @@ This allows querying photo metadata via SQL.
 ### Create or update database
 ```
 picture-db index
+picture-db index /path/to/photo/collection
 ```
 
 ### Run SQL queries
@@ -22,7 +23,11 @@ Note: This requires the `sqlite3` binary in your `$PATH`.
 ```
 picture-db photoprism \
   --url 'http://localhost:8080' --user 'admin' --pass 'admin' \
-  'SELECT dir2 AS album, path FROM pictures WHERE rating >= 4'
+  'SELECT json_path->>6 AS album, path FROM pictures WHERE rating >= 4'
+
+picture-db photoprism \
+  --url 'http://localhost:8080' --user 'admin' --pass 'admin' \
+  'SELECT "Favorites" AS album, path FROM pictures WHERE rating = 5'
 ```
 
 ### Using a configuration file
@@ -34,10 +39,8 @@ picture-db --config picturedb.json ...
 ```
 CREATE TABLE `pictures` (
     `path` text NOT NULL,
+    `json_path` text NOT NULL,
     `dir` text NOT NULL,
-    `dir1` text NOT NULL,
-    `dir2` text NOT NULL,
-    `dir3` text NOT NULL,
     `created_at` datetime NOT NULL,
     `updated_at` datetime NOT NULL,
     `make` text,

@@ -6,10 +6,8 @@ import (
 
 type Picture struct {
 	Path      string    `gorm:"primaryKey;not null"`
+	JsonPath  string    `gorm:"not null"`
 	Dir       string    `gorm:"not null"`
-	Dir1      string    `gorm:"not null"`
-	Dir2      string    `gorm:"not null"`
-	Dir3      string    `gorm:"not null"`
 	CreatedAt time.Time `gorm:"not null"`
 	UpdatedAt time.Time `gorm:"not null"`
 
