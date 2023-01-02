@@ -17,8 +17,6 @@ picture-db sql 'SELECT path FROM pictures NATURAL JOIN picture_tags WHERE tag = 
 picture-db sql 'SELECT tag, COUNT(*) FROM picture_tags GROUP BY tag ORDER BY COUNT(*) DESC'
 ```
 
-Note: This requires the `sqlite3` binary in your `$PATH`.
-
 ### Create PhotoPrism albums based on image metadata
 ```
 picture-db photoprism \

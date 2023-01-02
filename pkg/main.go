@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"log"
 	"os"
-	"os/exec"
 
 	"github.com/spf13/cobra"
 )
@@ -77,11 +76,7 @@ func main() {
 		Short: "run SQL commands in the picture database",
 		Args:  cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
-			sqliteCmd := exec.Command("sqlite3", "-header", "-column", config.DBPath, args[0])
-			sqliteCmd.Stdout = os.Stdout
-			sqliteCmd.Stderr = os.Stderr
-
-			err := sqliteCmd.Run()
+			err := sql(&config, args[0])
 			if err != nil {
 				log.Fatal(err)
 				return
