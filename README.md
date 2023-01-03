@@ -25,7 +25,7 @@ picture-db photoprism \
 
 picture-db photoprism \
   --url 'http://localhost:8080' --user 'admin' --pass 'admin' \
-  'SELECT "Favorites" AS album, path FROM pictures WHERE rating = 5'
+  'SELECT "Favorites" AS album, path, SUBSTR(path, 44) AS photoprism_path FROM pictures WHERE rating = 5'
 ```
 
 ### Using a configuration file

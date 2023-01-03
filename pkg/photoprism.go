@@ -9,8 +9,9 @@ import (
 )
 
 type PhotoprismPicture struct {
-	Album string
-	Path  string
+	Album          string
+	Path           string
+	PhotoprismPath string
 }
 
 func syncPhotoprismAlbum(config *Config, client *photoprism.Client, photoprismAlbums []api.Album, albumTitle string, pictures []*PhotoprismPicture) error {
@@ -60,8 +61,14 @@ func syncPhotoprismAlbum(config *Config, client *photoprism.Client, photoprismAl
 		if config.Verbose {
 			fmt.Printf("searching file %s in PhotoPrism [%.0f%%]\n", picture.Path, float64(i+1)/float64(len(pictures))*100)
 		}
+
+		queryPath := picture.PhotoprismPath
+		if queryPath == "" {
+			queryPath = picture.Path
+		}
+
 		photos, err := client.V1().GetPhotos(&api.PhotoOptions{
-			Q:     url.QueryEscape(fmt.Sprintf("filename:\"*%s*\"", picture.Path)),
+			Q:     url.QueryEscape(fmt.Sprintf("filename:\"*%s*\"", queryPath)),
 			Count: 1,
 		})
 		if err != nil {
@@ -69,7 +76,7 @@ func syncPhotoprismAlbum(config *Config, client *photoprism.Client, photoprismAl
 		}
 
 		if len(photos) == 0 {
-			fmt.Printf("WARNING: picture %s not found in PhotoPrism, did you forget to index?\n", picture.Path)
+			fmt.Printf("WARNING: %s not found in PhotoPrism, did you forget to index?\n", queryPath)
 			continue
 		}
 		photoUID := photos[0].PhotoUID
@@ -98,10 +105,10 @@ func syncPhotoprismAlbum(config *Config, client *photoprism.Client, photoprismAl
 	deletePictures := []string{}
 	for _, picture := range photoprismAlbumPictures {
 		if config.PhotoPrism.DeleteFromAlbum {
-			fmt.Printf("deleting %s from %s\n", picture.PhotoName, albumTitle)
+			fmt.Printf("deleting %s/%s from %s\n", picture.PhotoPath, picture.PhotoName, albumTitle)
 			deletePictures = append(deletePictures, picture.PhotoUID)
 		} else {
-			fmt.Printf("WARNING: %s is in PhotoPrism album %s but should not be there (use --delete to delete extra pictures)\n", picture.PhotoName, albumTitle)
+			fmt.Printf("WARNING: %s/%s is in PhotoPrism album %s but should not be there (use --delete to delete extra pictures)\n", picture.PhotoPath, picture.PhotoName, albumTitle)
 		}
 	}
 
